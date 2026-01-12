@@ -1,4 +1,4 @@
-# 🚀 DAM - İTÜ Ders Algoritma Modülü
+# 🚀 DAM - Dersimi alabilecek miyim?
 
 İTÜ öğrencileri için geliştirilmiş, çakışmasız ders programı hazırlama asistanı.
 
@@ -8,8 +8,8 @@
 * **CRN Sihirbazı:** Seçilen derslerin CRN'lerini tek tıkla OBS'ye doldurur.
 * **Bulut Kayıt:** Google ile giriş yaparak programınızı kaydedebilirsiniz.
 
-## 🔗 Canlı Demo
-Siteyi kullanmak için: [Buraya Tıkla](www.itudam.com)
+## 🔗 Güzel mi?
+Siteyi kullanmak için: [www.itudam.com](https://www.itudam.com)
 
 ## 🛠️ Teknolojiler
 * HTML5, CSS3, JavaScript (ES6+)
