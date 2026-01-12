@@ -4,11 +4,11 @@ name: Otomatik Güncelleme Robotu 🤖
 on:
   # 1. Telefondan manuel tetikleme için:
   workflow_dispatch:
-  # 2. Otomatik (Örn: Her 6 saatte bir):
+  # 2. Otomatik:
   schedule:
     - cron: '0 */6 * * *'
 
-# İZİNLER (Siteyi güncellemesi için gerekli)
+# İZİNLER
 permissions:
   contents: write
 
@@ -26,21 +26,21 @@ jobs:
         with:
           python-version: '3.9'
 
-      # 3. Kütüphaneleri Yükle (Eğer requests, beautifulsoup vs. kullanıyorsan)
+      # 3. Kütüphaneleri Yükle 
       - name: Kütüphaneleri Yükle
         run: |
           pip install requests
           pip install bs4
           
-      # 4. Veriyi Çek (Bu senin scrape dosyan)
+      # 4. Veriyi Çek 
       - name: 🔄 Verileri Güncelle
         run: iturequestr.py
 
-      # 5. Siteyi İnşa Et (Bu bizim HTML yapan kod)
+      # 5. Siteyi İnşa Et 
       - name: 🏗️ Siteyi Oluştur
         run: python sitebuilder.py
 
-      # 7. Değişiklikleri Kaydet ve Gönder (Push)
+      # 7. Push
       - name: 🚀 Değişiklikleri İşle
         run: |
           git config user.name "Otomatik Robot"
