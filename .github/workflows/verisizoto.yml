@@ -1,0 +1,40 @@
+name: VERİSİZ - Otomatik Güncelleme Robotu 🤖
+
+on:
+  workflow_dispatch: # Telefondan tetiklemek için
+  schedule:
+    - cron: '0 */6 * * *' # 6 saatte bir çalışır
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Depoyu Çek
+        uses: actions/checkout@v3
+
+      - name: Python Kur
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Kütüphaneleri Yükle
+        run: |
+          pip install requests
+          pip install bs4
+
+      # 2. ADIM: HTML OLUŞTUR (Builder)
+      - name: 🏗️ Siteyi Oluştur
+        run: python sitebuilder.py
+
+      # 3. ADIM: GITHUB'A GÖNDER
+      - name: 🚀 Değişiklikleri İşle
+        run: |
+          git config user.name "Otomatik Robot"
+          git config user.email "actions@github.com"
+          # BURASI ÇOK ÖNEMLİ: Yeni dosya isimlerini ekliyoruz
+          git add index.html
+          git commit -m "Robot güncellemesi: $(date)" || exit 0
+          git push
