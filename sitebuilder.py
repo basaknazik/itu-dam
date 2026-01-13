@@ -20,18 +20,26 @@ def process_data():
     subjects = set()
 
     for item in raw_data:
-        # Veri temizleme ve okuma işlemleri aynı
-        crn = str(item.get("crn")).strip()
-        kod = (item.get("kod")).strip()
-        isim = (item.get("isim")).strip()
-        hoca = (item.get("hoca")).strip()
-        sinif = (item.get("sinif")).strip()
+        crn = str(item.get("crn") or item.get("CRN") or "").strip()
+        kod = (item.get("kod") or item.get("code") or item.get("DersKodu") or "").strip()
+        isim = (item.get("isim") or item.get("title") or item.get("name") or item.get("DersAdi") or "").strip()
+        hoca = (item.get("hoca") or item.get("instructor") or item.get("OgretimUyesi") or "").strip()
+        sinif = (item.get("Başarılan Kredi/ Sınıf Önşartı") or item.get("BasarilanKrediSinifOnsarti") or item.get("SinifOnsarti") or item.get("Restricts") or item.get("ClassRestriction") or "").strip()
         
         if not crn or not kod: continue
 
+        is_senior = "Detay" in str(sinif)
+    # -----------------------------------------------
+
         if crn not in courses_map:
             courses_map[crn] = {
-                "id": crn, "k": kod, "n": isim, "i": hoca, "s": [], "t": "SABIT", "lv4": "Detay" in sinif
+                "id": crn, 
+                "k": kod, 
+                "n": isim, 
+                "i": hoca, 
+                "s": [], 
+                "t": "SABIT",
+                "lv4": is_senior  # <-- True veya False olarak ekledik
             }
             subj = kod.split(" ")[0]
             if len(subj) > 1: subjects.add(subj)
