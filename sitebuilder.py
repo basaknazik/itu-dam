@@ -28,8 +28,13 @@ def process_data():
         
         if not crn or not kod: continue
 
-        is_senior = "Detay" in str(sinif)
-    # -----------------------------------------------
+        # --- 1. JSON'dan Gelen Veriyi Yakala ---
+        # Scraper 'sinif' olarak kaydettiği için önceliği ona veriyoruz.
+        raw_sinif = str(item.get("sinif") or item.get("Başarılan Kredi/ Sınıf Önşartı") or "").strip()
+
+        # --- 2. Mantıksal Kontrol (True/False) ---
+        # İçinde "Detay" kelimesi geçiyorsa bu bir 4. sınıf/kısıtlı derstir.
+        is_senior = "Detay" in raw_sinif
 
         if crn not in courses_map:
             courses_map[crn] = {
@@ -39,7 +44,7 @@ def process_data():
                 "i": hoca, 
                 "s": [], 
                 "t": "SABIT",
-                "lv4": is_senior  # <-- True veya False olarak ekledik
+                "lv4": is_senior  # <-- Kritik Veri: Frontend bunu okuyacak
             }
             subj = kod.split(" ")[0]
             if len(subj) > 1: subjects.add(subj)
@@ -192,7 +197,7 @@ html_template = """
                 <select id="sel-subj"><option value="ALL">Tümü</option></select>
                 <label class="checkbox-row"><input type="checkbox" id="chk-clean" checked> Sadece Çakışmayanlar</label>
 
-                <label class="checkbox-row" style="color: var(--orange);">
+                <label class="checkbox-row" style="color: var(--orange); font-weight:500;">
                     <input type="checkbox" id="chk-senior"> 🎓 4. Sınıf / Bitirme Derslerini Göster
                 </label>
                 <button class="btn-find" onclick="runFilter()">🔍 LİSTELE</button>
@@ -375,6 +380,15 @@ html_template = """
             frag.appendChild(opt);
         });
         sel.appendChild(frag);
+        // 1. Tarayıcı hafızasından tercihi oku (Varsayılan: Kapalı/False)
+        const isSeniorPref = localStorage.getItem("dam_show_senior") === "true";
+        document.getElementById('chk-senior').checked = isSeniorPref;
+
+        // 2. Checkbox değiştiğinde hafızaya yaz ve listeyi yenile
+        document.getElementById('chk-senior').addEventListener('change', (e) => {
+            localStorage.setItem("dam_show_senior", e.target.checked);
+            runFilter(); // Anlık tepki ver
+        });
         document.getElementById('db-stat').innerText = ``;
         refreshUI();
         // 1. LocalStorage'dan tercihi oku, yoksa 'false' kabul et
@@ -432,28 +446,30 @@ html_template = """
 
         setTimeout(() => {
             let hits = [];
+            // Konu Filtresi
             if (subj === "ALL") hits = RAW_DB; else hits = RAW_DB.filter(c => c.k.startsWith(subj));
             
-            // Zaten ekli olanları gizle
+            // Ekli olanları gizle
             hits = hits.filter(c => !window.MY_PROG[c.id]);
 
-            // --- 4. SINIF FİLTRESİ (OPERASYON BURADA) ---
+            // --- PROFESYONEL 4. SINIF FİLTRESİ ---
+            // Eğer kullanıcı "Göster" demediyse (!showSenior) 
+            // VE ders 4. sınıf dersiyse (c.lv4 === true) -> Listeden at.
             if (!showSenior) {
-                // Eğer checkbox işaretli DEĞİLSE, 4. sınıf (lv4 == true) olanları LİSTEDEN AT.
                 hits = hits.filter(c => c.lv4 !== true);
             }
-            // ---------------------------------------------
+            // -------------------------------------
 
             if (clean) {
-                // ... (Eski çakışma kontrol kodların burada kalacak) ...
-                const fixed = Object.values(window.MY_PROG).filter(p => p.t === "SABIT");
+                // ... (Senin mevcut çakışma kontrol kodun aynen kalsın) ...
+                 const fixed = Object.values(window.MY_PROG).filter(p => p.t === "SABIT");
                 if (fixed.length > 0) {
-                    hits = hits.filter(cand => {
-                        for (let s1 of cand.s) for (let f of fixed) for (let s2 of f.s) 
-                            if (s1.d === s2.d && Math.max(s1.b, s2.b) < Math.min(s1.e, s2.e)) return false;
-                        return true;
-                    });
-                }
+                hits = hits.filter(cand => {
+                         for (let s1 of cand.s) for (let f of fixed) for (let s2 of f.s) 
+                             if (s1.d === s2.d && Math.max(s1.b, s2.b) < Math.min(s1.e, s2.e)) return false;
+                         return true;
+                     });
+                 }
             }
             
             showResults(hits.slice(0, 100));
