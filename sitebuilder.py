@@ -359,7 +359,6 @@ html_template = """
 
 <script>
     // --- CORE UYGULAMA MANTIĞI ---
-    // Python bu kısımları dolduracak:
     const RAW_DB = {db_placeholder};
     const SUBJ_LIST = {subj_placeholder};
     
@@ -369,9 +368,10 @@ html_template = """
     window.NETWORK = null;
     const DAYS = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma"];
 
-    // Placeholder save function (Firebase yüklenene kadar boş dursun)
+    // Placeholder save function (Firebase yüklenene kadar hata vermesin)
     window.triggerSave = function() {}; 
 
+    // --- INIT FONKSİYONU ---
     function init() {
         const sel = document.getElementById('sel-subj');
         const frag = document.createDocumentFragment();
@@ -383,24 +383,24 @@ html_template = """
         sel.appendChild(frag);
         document.getElementById('db-stat').innerText = `v14 • ${RAW_DB.length}`;
         
-        // --- 4. SINIF FİLTRESİ AYARI (HATA BURADAYDI, DÜZELTİLDİ) ---
+        // --- 4. SINIF FİLTRESİ AYARI (DÜZELTİLDİ) ---
         // 1. Önce tercihi oku
         const isSeniorPref = localStorage.getItem("dam_show_senior") === "true";
         // 2. Checkbox'ı ayarla
         const chk = document.getElementById('chk-senior');
         if(chk) {
             chk.checked = isSeniorPref;
-            // 3. Listener ekle
+            // 3. Listener ekle (Değişken çakışması olmasın diye buraya aldık)
             chk.addEventListener('change', (e) => {
                 localStorage.setItem("dam_show_senior", e.target.checked);
                 runFilter(); 
             });
         }
-        // -----------------------------------------------------------
-
+        
         refreshUI();
     }
 
+    // Fonksiyonları window'a sabitleyelim (Garanti yöntem)
     window.setMode = function(mode) {
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -422,6 +422,7 @@ html_template = """
             const hits = [];
             for (let i = 0; i < RAW_DB.length; i++) {
                 const c = RAW_DB[i];
+                // Arama Mantığı
                 if (!window.MY_PROG[c.id] && (c.k.includes(val) || c.id.includes(val) || c.n.toUpperCase().includes(val))) {
                     hits.push(c);
                     if (hits.length >= 50) break;
@@ -451,9 +452,9 @@ html_template = """
 
             // --- 4. SINIF FİLTRESİ ---
             if (!showSenior) {
+                // lv4 true ise listeden at
                 hits = hits.filter(c => c.lv4 !== true);
             }
-            // ------------------------
 
             if (clean) {
                  const fixed = Object.values(window.MY_PROG).filter(p => p.t === "SABIT");
@@ -609,6 +610,7 @@ html_template = """
         btn.innerText = list.length ? `⚡ ${Object.values(window.MY_PROG).filter(c=>c.t==="SABIT").length} CRN Hazır` : "⚠️ Liste Boş";
     }
 
+    // Başlat
     init();
 </script>
 </body>
