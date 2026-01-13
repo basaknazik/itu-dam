@@ -1,4 +1,5 @@
 
+
 <!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -171,97 +172,120 @@
     import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
     import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
+    // --- SENİN FIREBASE CONFIG BURADA OLMALI ---
     const firebaseConfig = {
-    apiKey: "AIzaSyC7tlSzzYkbI3L66esuBTepTawbTKGJHXI",
-    authDomain: "dam-itu.firebaseapp.com",
-    projectId: "dam-itu",
-    storageBucket: "dam-itu.firebasestorage.app",
-    messagingSenderId: "468727035557",
-    appId: "1:468727035557:web:86da59562d6952c728ff4c",
-    measurementId: "G-QPZ0MD160H"
-  };
-    
-    // Eğer config tanımlı değilse uyaralım
+        apiKey: "AIzaSyC7tlSzzYkbI3L66esuBTepTawbTKGJHXI",
+        authDomain: "dam-itu.firebaseapp.com",
+        projectId: "dam-itu",
+        storageBucket: "dam-itu.firebasestorage.app",
+        messagingSenderId: "468727035557",
+        appId: "1:468727035557:web:86da59562d6952c728ff4c",
+        measurementId: "G-QPZ0MD160H"
+    };
+
     if(typeof firebaseConfig === 'undefined') {
-        console.error("Firebase Config bulunamadı! HTML dosyasını düzenleyip ekleyin.");
-        document.getElementById('login-status').innerHTML = "<b style='color:red'>HATA: Firebase Config Eksik!</b><br>HTML dosyasını açıp en alt kısma yapıştırın.";
+        console.error("Firebase Config bulunamadı!");
+        document.getElementById('login-status').innerHTML = "<b style='color:red'>HATA: Config Eksik!</b>";
     } else {
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
         const provider = new GoogleAuthProvider();
 
-        // Login Butonunu Bağla
+        // Login
         document.getElementById('btn-google-login').addEventListener('click', () => {
             document.getElementById('login-status').innerText = "Google'a bağlanılıyor...";
-            signInWithPopup(auth, provider)
-                .then((result) => {
-                    // Başarılı, onAuthStateChanged yakalayacak
-                }).catch((error) => {
-                    alert("Giriş Hatası: " + error.message);
-                    document.getElementById('login-status').innerText = "Giriş başarısız.";
-                });
+            signInWithPopup(auth, provider).catch((error) => {
+                alert("Giriş Hatası: " + error.message);
+                document.getElementById('login-status').innerText = "Giriş başarısız.";
+            });
         });
 
-        // Logout Fonksiyonu (Global)
+        // Logout
         window.appLogout = () => {
-            signOut(auth).then(() => {
-                location.reload(); // Sayfayı yenile
-            });
+            signOut(auth).then(() => location.reload());
         };
 
-        // Oturum Durumu Değişince
+        // --- OPTİMİZASYON 1: AKILLI YÜKLEME (Hybrid Loading) ---
         onAuthStateChanged(auth, async (user) => {
             if (user) {
-                // UI Hazırla
+                // UI Hazırlıkları
                 document.getElementById('login-overlay').style.opacity = '0';
                 setTimeout(() => document.getElementById('login-overlay').style.visibility = 'hidden', 600);
                 document.getElementById('app').style.opacity = '1';
                 setTimeout(() => { if(window.NETWORK) window.NETWORK.fit(); }, 600);
 
-                // Kullanıcı Bilgisi
                 document.getElementById('user-profile-bar').style.display = 'flex';
                 document.getElementById('user-avatar').src = user.photoURL;
                 document.getElementById('user-name').innerText = user.displayName;
 
-                // Veriyi Çek
                 const syncLabel = document.getElementById('cloud-sync');
-                syncLabel.innerText = "☁️ Yükleniyor...";
                 
+                // ADIM 1: Önce Işık Hızıyla LocalStorage'dan Oku (Firebase'i bekleme)
+                const localKey = `itu_dam_data_${user.uid}`;
+                const localData = localStorage.getItem(localKey);
+                
+                if (localData) {
+                    try {
+                        window.MY_PROG = JSON.parse(localData);
+                        console.log("⚡ Veri yerel hafızadan yüklendi (Hızlandırıldı).");
+                        window.refreshUI();
+                    } catch(e) { console.error("Local data bozuk"); }
+                }
+
+                // ADIM 2: Arka Planda Sessizce Firebase'i Kontrol Et (Senkronizasyon)
+                syncLabel.innerText = "☁️ Senkronize ediliyor...";
                 const docRef = doc(db, "users", user.uid);
+                
                 try {
                     const docSnap = await getDoc(docRef);
                     if (docSnap.exists()) {
-                        window.MY_PROG = docSnap.data().program || {};
-                        console.log("Veri çekildi.");
-                    } else {
-                        console.log("Yeni kullanıcı.");
+                        const cloudData = docSnap.data().program || {};
+                        // Eğer Local'deki veri ile Cloud farklıysa, Cloud'u esas al (veya birleştir)
+                        // Şimdilik Cloud'u esas alıyoruz, çünkü en güvenlisi o.
+                        if (JSON.stringify(cloudData) !== JSON.stringify(window.MY_PROG)) {
+                            window.MY_PROG = cloudData;
+                            window.refreshUI();
+                            // Local'i de güncelle ki bir sonraki giriş hızlı olsun
+                            localStorage.setItem(localKey, JSON.stringify(window.MY_PROG));
+                            console.log("☁️ Veri buluttan güncellendi.");
+                        }
                     }
+                    syncLabel.innerText = "☁️ Hazır";
                 } catch(e) {
-                    console.error("Veri çekme hatası:", e);
+                    console.error("Firebase okuma hatası:", e);
+                    syncLabel.innerText = "⚠️ Offline Mod";
                 }
-                
-                window.refreshUI();
-                syncLabel.innerText = "☁️ Hazır";
 
-                // Kayıt Fonksiyonunu Tanımla
-                window.saveToCloud = async () => {
-                    syncLabel.innerText = "🔄 Kaydediliyor...";
-                    try {
-                        await setDoc(doc(db, "users", user.uid), { 
-                            program: window.MY_PROG,
-                            updated: new Date()
-                        });
-                        syncLabel.innerText = "☁️ Kaydedildi";
-                        setTimeout(() => syncLabel.innerText = "☁️ Hazır", 2000);
-                    } catch(e) {
-                        console.error("Kayıt hatası:", e);
-                        syncLabel.innerText = "⚠️ Hata";
-                    }
+                // --- OPTİMİZASYON 2: GECİKMELİ KAYIT (DEBOUNCE) ---
+                // Kullanıcı her tıkladığında değil, durduğunda kaydet.
+                let saveTimeout;
+                window.triggerSave = () => {
+                    syncLabel.innerText = "⏳ Kaydedilecek...";
+                    
+                    // 1. Önce LocalStorage'a hemen yaz (Veri kaybını önler)
+                    localStorage.setItem(localKey, JSON.stringify(window.MY_PROG));
+                    
+                    // 2. Firebase kaydını 3 saniye ertele (Fren Mekanizması)
+                    clearTimeout(saveTimeout);
+                    saveTimeout = setTimeout(async () => {
+                        syncLabel.innerText = "🔄 Buluta yazılıyor...";
+                        try {
+                            await setDoc(doc(db, "users", user.uid), { 
+                                program: window.MY_PROG,
+                                updated: new Date(),
+                                // Gizlilik dostu meta veri (isteğe bağlı)
+                                // email: user.email 
+                            });
+                            syncLabel.innerText = "☁️ Kaydedildi";
+                            setTimeout(() => syncLabel.innerText = "☁️ Hazır", 2000);
+                        } catch(e) {
+                            console.error("Kayıt hatası:", e);
+                            syncLabel.innerText = "⚠️ Kayıt Hatası";
+                        }
+                    }, 3000); // 3 Saniye bekleme süresi
                 };
 
-            } else {
-                // Kullanıcı yoksa login ekranında kalır
             }
         });
     }
@@ -279,7 +303,7 @@
     const DAYS = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma"];
 
     // Placeholder save function (Firebase yoksa patlamasın diye)
-    window.saveToCloud = function() {}; 
+    window.triggerSave = function() {}; 
 
     function init() {
         const sel = document.getElementById('sel-subj');
@@ -367,21 +391,21 @@
             RESULT_LIST = RESULT_LIST.filter(x => x.id !== id);
             if(RESULT_LIST.length === 0) clearResults(); else renderResultList();
             refreshUI();
-            window.saveToCloud(); 
+            window.triggerSave();; 
         }
     }
 
     window.remove = function(id) { 
         delete window.MY_PROG[id]; 
         refreshUI(); 
-        window.saveToCloud(); 
+        window.triggerSave(); 
     }
 
     window.toggleType = function(id) {
         if (window.MY_PROG[id]) { 
             window.MY_PROG[id].t = window.MY_PROG[id].t === "SABIT" ? "ADAY" : "SABIT"; 
             refreshUI(); 
-            window.saveToCloud(); 
+            window.triggerSave(); 
         }
     }
 
@@ -490,3 +514,4 @@
 </script>
 </body>
 </html>
+
