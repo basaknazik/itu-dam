@@ -24,6 +24,7 @@ jobs:
         run: |
           pip install requests
           pip install bs4
+          pip install selenium
 
       # 1. ADIM: VERİYİ ÇEK (Scraper)
       - name: 🔄 Verileri Güncelle
