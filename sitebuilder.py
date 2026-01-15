@@ -24,7 +24,8 @@ DAY_MAPPING = {
     "Thursday": "Perşembe", "Friday": "Cuma", "Saturday": "Cumartesi", "Sunday": "Pazar",
 
     # İngilizce Kısa
-    "Mon": "Pazartesi", "Tue": "Salı", "Wed": "Çarşamba", "Thu": "Perşembe", "Fri": "Cuma"
+    "Mon": "Pazartesi", "Tue": "Salı", "Wed": "Çarşamba", "Thu": "Perşembe", "Fri": "Cuma",
+    "Day": "Gün", "-":"-",
 }
 
 def safe_float(val):
