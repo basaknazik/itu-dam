@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import json
 import os
 
@@ -5,90 +6,128 @@ import os
 INPUT_JSON = "dersler.json"
 OUTPUT_HTML = "index.html"
 
-# --- YARDIMCI FONKSİYON: SAAT DÜZELTİCİ ---
-# Gelen veri "08:30" da olsa, 8.5 de olsa, boş da olsa bunu sayıya çevirir.
-def safe_float_time(val):
-    if val is None or val == "":
-        return None
+# --- GÜN EŞLEŞTİRİCİ ---
+# İTÜ'den ne gelirse gelsin, HTML'in anladığı formata çeviriyoruz.
+DAY_MAPPING = {
+    "Pazartesi": "Pazartesi", "PAZARTESİ": "Pazartesi", "Pzt": "Pazartesi",
+    "Salı": "Salı", "Sali": "Salı", "SALI": "Salı", "Sal": "Salı",
+    "Çarşamba": "Çarşamba", "Carsamba": "Çarşamba", "ÇARŞAMBA": "Çarşamba", "Car": "Çarşamba",
+    "Perşembe": "Perşembe", "Persembe": "Perşembe", "PERŞEMBE": "Perşembe", "Per": "Perşembe",
+    "Cuma": "Cuma", "CUMA": "Cuma", "Cum": "Cuma"
+}
+
+def safe_float(val):
+    """ '08:30' veya 8.5 verisini güvenli sayıya çevirir. """
+    if val is None or val == "": return None
     try:
-        # Zaten sayıysa direkt döndür (Scraper'dan gelen float)
-        if isinstance(val, (int, float)):
-            return float(val)
-        # Metinse (Örn: "08:30") düzelt
-        val = str(val).replace(":", ".").replace("/", ".")
-        return float(val)
+        # Önce metne çevirip : ve / işaretlerini nokta yapıyoruz
+        s_val = str(val).replace(":", ".").replace("/", ".")
+        return float(s_val)
     except:
         return None
 
-# --- 1. PYTHON VERİ İŞLEME ---
 def process_data():
     if not os.path.exists(INPUT_JSON):
-        print(f"❌ HATA: {INPUT_JSON} dosyası bulunamadı! Lütfen JSON dosyasını bu klasöre at.")
+        print(f"❌ HATA: {INPUT_JSON} bulunamadı!")
         return None, None
 
+    print(f"📂 {INPUT_JSON} okunuyor...")
     with open(INPUT_JSON, "r", encoding="utf-8") as f:
         raw_data = json.load(f)
 
     courses_map = {}
     subjects = set()
+    
+    # İstatistikler (Hatanın nerede olduğunu anlamak için)
+    stats = {
+        "toplam_veri": len(raw_data),
+        "basarili_slot": 0,
+        "hatali_saat": 0,
+        "hatali_gun": 0,
+        "saatsiz_ders": 0
+    }
 
     for item in raw_data:
-        # Verileri güvenli bir şekilde al
-        crn = str(item.get("crn") or item.get("CRN") or "").strip()
-        kod = (item.get("kod") or item.get("code") or item.get("DersKodu") or "").strip()
-        isim = (item.get("isim") or item.get("title") or item.get("name") or item.get("DersAdi") or "").strip()
-        hoca = (item.get("hoca") or item.get("instructor") or item.get("OgretimUyesi") or "").strip()
+        # 1. Temel Verileri Al
+        crn = str(item.get("crn") or item.get("id") or "").strip()
+        kod = (item.get("kod") or "").strip()
+        isim = (item.get("isim") or "").strip()
+        hoca = (item.get("hoca") or "").strip()
         
-        # --- 4. SINIF / KISIT KONTROLÜ ---
-        raw_sinif_data = str(item.get("sinif") or "").strip()
-        is_senior = "Detay" in raw_sinif_data
-        # --------------------------------
-
         if not crn or not kod: continue
 
-        # Eğer bu ders daha önce listeye eklenmemişse, iskeletini oluştur
+        # 2. Ana Depoya Ekle (Eğer yoksa)
         if crn not in courses_map:
+            # 4. Sınıf / Kısıt Kontrolü
+            raw_sinif = str(item.get("sinif") or "").strip()
+            is_senior = "Detay" in raw_sinif
+            
             courses_map[crn] = {
                 "id": crn, 
                 "k": kod, 
                 "n": isim, 
                 "i": hoca, 
-                "s": [],        # <-- İŞTE BURASI: Ders saatlerinin birikeceği boş liste
+                "s": [], # Saatler buraya dolacak
                 "t": "SABIT",
                 "lv4": is_senior
             }
             subj = kod.split(" ")[0]
             if len(subj) > 1: subjects.add(subj)
 
-        # -----------------------------------------------------------
-        # 📍 DERSLERİ SAATLERİNE GÖRE AYIRDIĞIMIZ VE SİSTEME KOYDUĞUMUZ YER
-        # -----------------------------------------------------------
-        gun = item.get("gun") or item.get("day") or item.get("Gun")
-        
-        # Saatleri "Zırhlı" fonksiyonumuzla alıyoruz (Hata vermesin diye)
-        bas = safe_float_time(item.get("bas") or item.get("start") or item.get("BaslangicSaati"))
-        bit = safe_float_time(item.get("bit") or item.get("end") or item.get("BitisSaati"))
+        # 3. Zaman Verisini İşle
+        raw_gun = item.get("gun")
+        raw_bas = item.get("bas")
+        raw_bit = item.get("bit")
 
-        # Eğer gün ve saat bilgisi geçerliyse, listeye ekle
-        if gun and bas is not None and bit is not None:
-            # "s" listesine yeni bir zaman dilimi ekliyoruz
-            courses_map[crn]["s"].append({ 
-                "d": gun,   # Day (Gün)
-                "b": bas,   # Begin (Başlangıç Saati - Örn: 8.5)
-                "e": bit    # End (Bitiş Saati - Örn: 11.5)
+        # -- SENARYO A: Saatsiz Ders --
+        if not raw_gun:
+            stats["saatsiz_ders"] += 1
+            continue 
+
+        # -- SENARYO B: Saatli Ders --
+        # Günü düzelt (Boşlukları sil, haritadan bak)
+        clean_gun = DAY_MAPPING.get(str(raw_gun).strip())
+        
+        if not clean_gun:
+            stats["hatali_gun"] += 1
+            # Debug: Hangi gün ismi hatalı?
+            # print(f"⚠️ Gün Tanınmadı: {raw_gun}") 
+            continue
+
+        bas_float = safe_float(raw_bas)
+        bit_float = safe_float(raw_bit)
+
+        if bas_float is not None and bit_float is not None:
+            courses_map[crn]["s"].append({
+                "d": clean_gun, 
+                "b": bas_float, 
+                "e": bit_float
             })
-        # -----------------------------------------------------------
+            stats["basarili_slot"] += 1
+        else:
+            stats["hatali_saat"] += 1
+            # Debug: Hangi saat bozuk?
+            # print(f"⚠️ Saat Bozuk: {kod} -> {raw_bas} / {raw_bit}")
+
+    # --- RAPOR ---
+    print("-" * 40)
+    print(f"📊 RAPOR:")
+    print(f"   Toplam Veri Satırı: {stats['toplam_veri']}")
+    print(f"   ✅ Başarılı Takvim Girişi: {stats['basarili_slot']}")
+    print(f"   ⚠️ Gün İsmi Hatalı: {stats['hatali_gun']}")
+    print(f"   ⚠️ Saat Formatı Hatalı: {stats['hatali_saat']}")
+    print(f"   ℹ️ Saatsiz/Günsüz Ders: {stats['saatsiz_ders']}")
+    print("-" * 40)
+    
+    if stats['basarili_slot'] == 0:
+        print("🚨 UYARI: Takvime hiçbir ders eklenemedi! JSON verisinde sorun olabilir.")
 
     clean_data = list(courses_map.values())
     sorted_subjects = sorted(list(subjects))
-    
-    # İstatistik
-    print(f"📊 İşlenen Ders Sayısı: {len(clean_data)}")
-    
     return json.dumps(clean_data, ensure_ascii=False), json.dumps(sorted_subjects, ensure_ascii=False)
-# --- 2. HTML ŞABLONU ---
-html_template = """
 
+# HTML Şablonu (Senin gönderdiğin HTML'in AYNISI)
+html_template = """
 <!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -103,7 +142,6 @@ html_template = """
         * { box-sizing: border-box; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: 'Inter', sans-serif; background: var(--bg); color: #e0e0e0; }
         
-        /* GİRİŞ EKRANI */
         #login-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0f0f0f; z-index: 9999; display: flex; justify-content: center; align-items: center; transition: opacity 0.6s ease, visibility 0.6s; }
         .login-box { width: 360px; padding: 40px; background: #1a1a1a; border: 1px solid #333; border-radius: 12px; text-align: center; box-shadow: 0 30px 60px rgba(0,0,0,0.5); }
         .login-logo { font-size: 40px; font-weight: 800; color: var(--blue); letter-spacing: -2px; margin-bottom: 5px; }
@@ -112,13 +150,9 @@ html_template = """
         .btn-login-main { width: 100%; padding: 12px; background: white; color: black; border: none; border-radius: 6px; font-weight: bold; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: transform 0.2s, background 0.2s; }
         .btn-login-main:hover { background: #e0e0e0; transform: scale(1.02); }
         
-        /* ANA UYGULAMA (GİZLİ BAŞLAR) */
         #app { display: flex; width: 100%; height: 100%; opacity: 0; transition: opacity 1s ease; }
-        
-        /* SIDEBAR & UI ELEMENTS */
         #sidebar { width: var(--sidebar-width); min-width: var(--sidebar-width); background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; z-index: 50; }
         
-        /* User Profile Area in Sidebar */
         #user-profile-bar { padding: 10px 15px; background: #151515; border-bottom: 1px solid #333; display:flex; align-items:center; gap:10px; font-size:12px; }
         #user-avatar { width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--blue); }
         #user-name { flex-grow: 1; font-weight: bold; color: #ddd; }
@@ -175,7 +209,6 @@ html_template = """
         .box:hover { z-index: 100 !important; transform: scale(1.05); box-shadow: 0 5px 10px rgba(0,0,0,0.6); }
         .box.ADAY { background: #3d2e14; border-left-color: var(--orange); } .box.CONFLICT { background: #3d1414; border-left-color: var(--red); border: 1px solid var(--red); }
         #loading { display: none; text-align: center; padding: 10px; font-size: 12px; color: var(--blue); }
-        
         #cloud-sync { font-size:10px; color:#666; margin-left:5px; }
     </style>
 </head>
@@ -185,12 +218,10 @@ html_template = """
     <div class="login-box">
         <div class="login-logo">DAM</div>
         <div class="login-sub">Dersimi alabilecek miyim?</div>
-        
         <button id="btn-google-login" class="btn-login-main">
             <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M21.35 11.1h-9.17v2.73h6.51c-.33 3.81-3.5 5.44-6.5 5.44C8.36 19.27 5 16.25 5 12c0-4.1 3.2-7.27 7.2-7.27c3.09 0 4.9 1.97 4.9 1.97L19 4.72S16.56 2 12.1 2C6.42 2 2.03 6.8 2.03 12.5S6.42 23 12.1 23c5.83 0 8.84-4.15 8.84-11.9z"/></svg>
             Google ile Giriş
         </button>
-        
         <div class="login-footer">
             <span id="login-status">Sistem hazır. Giriş bekleniyor.</span>
         </div>
@@ -204,26 +235,21 @@ html_template = """
             <span id="user-name">Kullanıcı</span>
             <span id="logout-btn" onclick="appLogout()">Çıkış</span>
         </div>
-
         <div class="header">
             <div class="title">
                 Hoşgeldin <span id="cloud-sync">☁️</span>
                 <span class="db-stat" id="db-stat">...</span>
             </div>
-            
             <div class="tabs">
                 <div class="tab active" onclick="setMode('search')">🔍 Ara</div>
                 <div class="tab" onclick="setMode('filter')">⚡ Akıllı Filtre</div>
             </div>
-
             <div id="panel-search" class="panel active">
                 <input type="text" id="inp-search" placeholder="Ders Kodu, CRN veya Adı..." autocomplete="off">
             </div>
-
             <div id="panel-filter" class="panel">
                 <select id="sel-subj"><option value="ALL">Tümü</option></select>
                 <label class="checkbox-row"><input type="checkbox" id="chk-clean" checked> Sadece Çakışmayanlar</label>
-
                 <label class="checkbox-row" style="color: var(--orange); font-weight:500;">
                     <input type="checkbox" id="chk-senior"> 🎓 4. Sınıf / Bitirme Derslerini Göster
                 </label>
@@ -231,7 +257,6 @@ html_template = """
                 <div id="loading">İşleniyor...</div>
             </div>
         </div>
-
         <div id="content-area">
             <div id="area-results" style="display:none; margin-bottom: 20px;">
                 <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #444; margin-bottom:5px;">
@@ -240,18 +265,15 @@ html_template = """
                 </div>
                 <div id="list-results"></div>
             </div>
-
             <div id="area-program">
                 <div class="section-title">PROGRAMIM</div>
                 <div id="list-program"></div>
             </div>
         </div>
-
         <div id="footer">
             <a href="#" id="bm-link" class="bm-btn">⚡ CRN Doldur (Sürükle)</a>
         </div>
     </div>
-
     <div id="main">
         <div id="network"></div>
         <div id="schedule">
@@ -265,7 +287,6 @@ html_template = """
     import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
     import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-    // --- SENİN FIREBASE CONFIG BURADA OLMALI ---
     const firebaseConfig = {
         apiKey: "AIzaSyC7tlSzzYkbI3L66esuBTepTawbTKGJHXI",
         authDomain: "dam-itu.firebaseapp.com",
@@ -285,7 +306,6 @@ html_template = """
         const db = getFirestore(app);
         const provider = new GoogleAuthProvider();
 
-        // Login
         document.getElementById('btn-google-login').addEventListener('click', () => {
             document.getElementById('login-status').innerText = "Google'a bağlanılıyor...";
             signInWithPopup(auth, provider).catch((error) => {
@@ -294,15 +314,12 @@ html_template = """
             });
         });
 
-        // Logout
         window.appLogout = () => {
             signOut(auth).then(() => location.reload());
         };
 
-        // --- OPTİMİZASYON 1: AKILLI YÜKLEME (Hybrid Loading) ---
         onAuthStateChanged(auth, async (user) => {
             if (user) {
-                // UI Hazırlıkları
                 document.getElementById('login-overlay').style.opacity = '0';
                 setTimeout(() => document.getElementById('login-overlay').style.visibility = 'hidden', 600);
                 document.getElementById('app').style.opacity = '1';
@@ -313,20 +330,16 @@ html_template = """
                 document.getElementById('user-name').innerText = user.displayName;
 
                 const syncLabel = document.getElementById('cloud-sync');
-                
-                // ADIM 1: Önce Işık Hızıyla LocalStorage'dan Oku (Firebase'i bekleme)
                 const localKey = `itu_dam_data_${user.uid}`;
                 const localData = localStorage.getItem(localKey);
                 
                 if (localData) {
                     try {
                         window.MY_PROG = JSON.parse(localData);
-                        console.log("⚡ Veri yerel hafızadan yüklendi (Hızlandırıldı).");
                         window.refreshUI();
                     } catch(e) { console.error("Local data bozuk"); }
                 }
 
-                // ADIM 2: Arka Planda Sessizce Firebase'i Kontrol Et (Senkronizasyon)
                 syncLabel.innerText = "☁️ Senkronize ediliyor...";
                 const docRef = doc(db, "users", user.uid);
                 
@@ -334,14 +347,10 @@ html_template = """
                     const docSnap = await getDoc(docRef);
                     if (docSnap.exists()) {
                         const cloudData = docSnap.data().program || {};
-                        // Eğer Local'deki veri ile Cloud farklıysa, Cloud'u esas al (veya birleştir)
-                        // Şimdilik Cloud'u esas alıyoruz, çünkü en güvenlisi o.
                         if (JSON.stringify(cloudData) !== JSON.stringify(window.MY_PROG)) {
                             window.MY_PROG = cloudData;
                             window.refreshUI();
-                            // Local'i de güncelle ki bir sonraki giriş hızlı olsun
                             localStorage.setItem(localKey, JSON.stringify(window.MY_PROG));
-                            console.log("☁️ Veri buluttan güncellendi.");
                         }
                     }
                     syncLabel.innerText = "☁️ Hazır";
@@ -350,25 +359,17 @@ html_template = """
                     syncLabel.innerText = "⚠️ Offline Mod";
                 }
 
-                // --- OPTİMİZASYON 2: GECİKMELİ KAYIT (DEBOUNCE) ---
-                // Kullanıcı her tıkladığında değil, durduğunda kaydet.
                 let saveTimeout;
                 window.triggerSave = () => {
                     syncLabel.innerText = "⏳ Kaydedilecek...";
-                    
-                    // 1. Önce LocalStorage'a hemen yaz (Veri kaybını önler)
                     localStorage.setItem(localKey, JSON.stringify(window.MY_PROG));
-                    
-                    // 2. Firebase kaydını 3 saniye ertele (Fren Mekanizması)
                     clearTimeout(saveTimeout);
                     saveTimeout = setTimeout(async () => {
                         syncLabel.innerText = "🔄 Buluta yazılıyor...";
                         try {
                             await setDoc(doc(db, "users", user.uid), { 
                                 program: window.MY_PROG,
-                                updated: new Date(),
-                                // Gizlilik dostu meta veri (isteğe bağlı)
-                                // email: user.email 
+                                updated: new Date()
                             });
                             syncLabel.innerText = "☁️ Kaydedildi";
                             setTimeout(() => syncLabel.innerText = "☁️ Hazır", 2000);
@@ -376,9 +377,8 @@ html_template = """
                             console.error("Kayıt hatası:", e);
                             syncLabel.innerText = "⚠️ Kayıt Hatası";
                         }
-                    }, 3000); // 3 Saniye bekleme süresi
+                    }, 3000);
                 };
-
             }
         });
     }
@@ -395,10 +395,8 @@ html_template = """
     window.NETWORK = null;
     const DAYS = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma"];
 
-    // Placeholder save function (Firebase yüklenene kadar hata vermesin)
     window.triggerSave = function() {}; 
 
-    // --- INIT FONKSİYONU ---
     function init() {
         const sel = document.getElementById('sel-subj');
         const frag = document.createDocumentFragment();
@@ -410,14 +408,10 @@ html_template = """
         sel.appendChild(frag);
         document.getElementById('db-stat').innerText = `v14 • ${RAW_DB.length}`;
         
-        // --- 4. SINIF FİLTRESİ AYARI (DÜZELTİLDİ) ---
-        // 1. Önce tercihi oku
         const isSeniorPref = localStorage.getItem("dam_show_senior") === "true";
-        // 2. Checkbox'ı ayarla
         const chk = document.getElementById('chk-senior');
         if(chk) {
             chk.checked = isSeniorPref;
-            // 3. Listener ekle (Değişken çakışması olmasın diye buraya aldık)
             chk.addEventListener('change', (e) => {
                 localStorage.setItem("dam_show_senior", e.target.checked);
                 runFilter(); 
@@ -427,7 +421,6 @@ html_template = """
         refreshUI();
     }
 
-    // Fonksiyonları window'a sabitleyelim (Garanti yöntem)
     window.setMode = function(mode) {
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -449,7 +442,6 @@ html_template = """
             const hits = [];
             for (let i = 0; i < RAW_DB.length; i++) {
                 const c = RAW_DB[i];
-                // Arama Mantığı
                 if (!window.MY_PROG[c.id] && (c.k.includes(val) || c.id.includes(val) || c.n.toUpperCase().includes(val))) {
                     hits.push(c);
                     if (hits.length >= 50) break;
@@ -462,8 +454,6 @@ html_template = """
     window.runFilter = function() {
         const subj = document.getElementById('sel-subj').value;
         const clean = document.getElementById('chk-clean').checked;
-        
-        // Checkbox güvenli seçim
         const chkSenior = document.getElementById('chk-senior');
         const showSenior = chkSenior ? chkSenior.checked : false;
 
@@ -473,13 +463,9 @@ html_template = """
         setTimeout(() => {
             let hits = [];
             if (subj === "ALL") hits = RAW_DB; else hits = RAW_DB.filter(c => c.k.startsWith(subj));
-            
-            // Zaten ekli olanları gizle
             hits = hits.filter(c => !window.MY_PROG[c.id]);
 
-            // --- 4. SINIF FİLTRESİ ---
             if (!showSenior) {
-                // lv4 true ise listeden at
                 hits = hits.filter(c => c.lv4 !== true);
             }
 
@@ -637,12 +623,10 @@ html_template = """
         btn.innerText = list.length ? `⚡ ${Object.values(window.MY_PROG).filter(c=>c.t==="SABIT").length} CRN Hazır` : "⚠️ Liste Boş";
     }
 
-    // Başlat
     init();
 </script>
 </body>
 </html>
-
 """
 
 # --- 3. INŞAAT ---
