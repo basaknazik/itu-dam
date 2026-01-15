@@ -1,46 +1,55 @@
-name: Otomatik Güncelleme Robotu 🤖
+name: Ders Güncelleme Robotu 🤖
 
 on:
-  workflow_dispatch: # Telefondan tetiklemek için
- # schedule:
- #  - cron: '0 */6 * * *' # 6 saatte bir çalışır
+  workflow_dispatch: # Manuel "Çalıştır" butonu
+  # schedule:
+  #  - cron: '0 */6 * * *' # Her 6 saatte bir otomatik çalış
 
 permissions:
-  contents: write
+  contents: write # Repoya dosya kaydetme izni
 
 jobs:
-  build-and-deploy:
+  scrape-and-build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Depoyu Çek
-        uses: actions/checkout@v3
+    - name: Depoyu Çek (Checkout)
+      uses: actions/checkout@v4
 
-      - name: Python Kur
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
+    - name: Python 3.10 Kur
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
 
-      - name: Kütüphaneleri Yükle
-        run: |
-          pip install requests
-          pip install bs4
-          pip install selenium
-          pip install webdriver_manager
+    - name: Google Chrome Kur
+      uses: browser-actions/setup-chrome@latest
 
-      # 1. ADIM: VERİYİ ÇEK (Scraper)
-      - name: 🔄 Verileri Güncelle
-        run: python iturequestr.py
+    - name: Gerekli Paketleri Yükle
+      run: |
+        # 1. Sanal Ekran (Xvfb) paketini kur (Monitör taklidi için)
+        sudo apt-get update
+        sudo apt-get install -y xvfb
+        
+        # 2. Python kütüphanelerini kur
+        pip install selenium webdriver-manager beautifulsoup4 requests
 
-      # 2. ADIM: HTML OLUŞTUR (Builder)
-      - name: 🏗️ Siteyi Oluştur
-        run: python sitebuilder.py
+    - name: Verileri Çek (Sanal Ekran Modu)
+      run: |
+        # xvfb-run komutu, Python kodunu sanal bir 1920x1080 ekranda çalıştırır.
+        # Böylece Selenium "Ekran yok" hatası vermez ve İTÜ robot olduğunu anlamaz.
+        xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" python iturequestr.py
 
-      # 3. ADIM: GITHUB'A GÖNDER
-      - name: 🚀 Değişiklikleri İşle
-        run: |
-          git config user.name "Otomatik Robot"
-          git config user.email "actions@github.com"
-          # BURASI ÇOK ÖNEMLİ: Yeni dosya isimlerini ekliyoruz
-          git add index.html dersler.json
-          git commit -m "Robot güncellemesi: $(date)" || exit 0
-          git push
+    - name: Siteyi Oluştur (Builder)
+      run: python sitebuilder.py
+
+    - name: Değişiklikleri Kaydet ve Gönder
+      run: |
+        git config --global user.name 'Ders Robotu'
+        git config --global user.email 'actions@github.com'
+        
+        # JSON ve HTML dosyalarını sahneye al
+        git add dersler.json index.html
+        
+        # Değişiklik varsa commit et, yoksa hata verme
+        git commit -m "Otomatik Güncelleme: $(date +'%Y-%m-%d %H:%M')" || exit 0
+        git push
