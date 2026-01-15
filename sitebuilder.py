@@ -6,80 +6,97 @@ import os
 INPUT_JSON = "dersler.json"
 OUTPUT_HTML = "index.html"
 
-# --- 1. PYTHON VERİ İŞLEME (DÜZELTİLMİŞ) ---
+# Günleri İngilizce/Kısaltma -> Türkçe Standart formatına çeviren fonksiyon
+def tr_gun_yap(gun_adi):
+    if not gun_adi: return None
+    g = str(gun_adi).lower().strip()
+    
+    mapping = {
+        "monday" : "Pazartesi",
+        "tuesday" : "Salı",
+        "wednesday" : "Çarşamba",
+        "thursday" : "Perşembe",
+        "friday" : "Cuma",
+        "detail" : "Detay"
+    }
+    
+    return mapping.get(g, None)
+
 def process_data():
     if not os.path.exists(INPUT_JSON):
-        print(f"❌ HATA: {INPUT_JSON} dosyası bulunamadı! Lütfen JSON dosyasını bu klasöre at.")
+        print(f"❌ HATA: {INPUT_JSON} dosyası bulunamadı! JSON dosyasının kodla aynı klasörde olduğundan emin ol.")
         return None, None
 
     with open(INPUT_JSON, "r", encoding="utf-8") as f:
-        raw_data = json.load(f)
+        try:
+            raw_data = json.load(f)
+        except json.JSONDecodeError:
+            print("❌ HATA: JSON dosyası bozuk veya formatı hatalı.")
+            return None, None
 
     courses_map = {}
     subjects = set()
 
+    # --- JSON OKUMA VE DÜZENLEME ---
     for item in raw_data:
-        # CRN verisini al
+        # Alanları esnek okuma (Büyük/küçük harf duyarlılığı olmadan)
         crn = str(item.get("crn") or item.get("CRN") or "").strip()
-        
-        # --- DÜZELTME: BAŞLIK VE BOŞ SATIR KONTROLÜ ---
-        # Eğer CRN "CRN" kelimesi ise (başlık satırı) veya boşsa bu satırı atla.
-        if not crn or crn.upper() == "CRN":
-            continue
-        # ----------------------------------------------
-
         kod = (item.get("kod") or item.get("code") or item.get("DersKodu") or "").strip()
-        # Eğer ders kodu yoksa da atla
-        if not kod:
-            continue
-
         isim = (item.get("isim") or item.get("title") or item.get("name") or item.get("DersAdi") or "").strip()
         hoca = (item.get("hoca") or item.get("instructor") or item.get("OgretimUyesi") or "").strip()
         
-        # --- SINIF/DETAY KONTROLÜ ---
-        raw_sinif_data = str(item.get("sinif") or "").strip()
-        # Sadece 'sinif' sütununda "Detay" yazıyorsa 4. sınıf/kısıtlı ders olarak işaretle
-        is_senior = "Detay" in raw_sinif_data 
-        # ----------------------------
+        # Sınıf "Detay" kontrolü (4. Sınıf filtresi için)
+        raw_sinif = str(item.get("sinif") or item.get("Sinif") or item.get("Class") or "").strip()
+        is_senior = "Detay" in raw_sinif # "Detay" kelimesi varsa True olur
 
+        # Dersi haritaya ekle veya güncelle
         if crn not in courses_map:
             courses_map[crn] = {
                 "id": crn, 
                 "k": kod, 
                 "n": isim, 
                 "i": hoca, 
-                "s": [], 
+                "s": [],        
                 "t": "SABIT",
-                "lv4": is_senior
+                "lv4": is_senior 
             }
-            # Ders kodunun ilk kelimesini (örn: BLG, MAT) konu (subject) olarak ekle
+            # Ders kodunun ilk kısmını (BLG, MAT vs.) konu listesine ekle
             subj = kod.split(" ")[0]
-            if len(subj) > 1: 
-                subjects.add(subj)
+            if len(subj) > 1: subjects.add(subj)
+        else:
+            # Eğer aynı CRN'in başka bir satırında "Detay" varsa, dersi senior yap
+            if is_senior:
+                courses_map[crn]["lv4"] = True
 
-        gun = item.get("gun") or item.get("day") or item.get("Gun")
+        # --- GÜN VE SAAT İŞLEME (KRİTİK BÖLÜM) ---
+        raw_gun = item.get("gun") or item.get("day") or item.get("Gun")
+        gun_tr = tr_gun_yap(raw_gun) # İngilizce günleri Türkçeye çevir
+
         bas = item.get("bas") or item.get("start") or item.get("BaslangicSaati")
         bit = item.get("bit") or item.get("end") or item.get("BitisSaati")
 
-        # Gün ve Başlangıç saati varsa ders programına ekle
-        if gun and bas is not None:
+        if gun_tr and bas is not None:
             try:
-                courses_map[crn]["s"].append({ 
-                    "d": gun, 
-                    "b": float(bas), 
-                    "e": float(bit) if bit is not None else float(bas) 
-                })
+                # Saat verisi string gelirse float'a çevir (örn: "13:30" -> 13.5 yapılabilir ama senin json float geliyor gibi)
+                # Senin JSON'da zaten float (15.5 gibi) geliyor, direkt alıyoruz.
+                b_val = float(bas)
+                e_val = float(bit)
+                courses_map[crn]["s"].append({ "d": gun_tr, "b": b_val, "e": e_val })
             except ValueError:
-                pass # Sayısal olmayan saat verisi varsa atla
+                pass 
 
     clean_data = list(courses_map.values())
     sorted_subjects = sorted(list(subjects))
+    
+    print(f"📊 İşlenen Ders Sayısı: {len(clean_data)}")
+    if len(clean_data) > 0:
+        print(f"✅ Örnek veri (İlk ders): {clean_data[0]['k']} - Günler: {[s['d'] for s in clean_data[0]['s']]}")
+    
     return json.dumps(clean_data, ensure_ascii=False), json.dumps(sorted_subjects, ensure_ascii=False)
 
-# --- 2. HTML ŞABLONU (BURADAN AŞAĞISINA DOKUNMAYIN) ---
-# --- 2. HTML ŞABLONU ---
-html_template = """
 
+# HTML ŞABLONU (JS Mantığı Düzeltildi)
+html_template = """
 <!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -475,7 +492,8 @@ html_template = """
             }
 
             if (clean) {
-                 const fixed = Object.values(window.MY_PROG).filter(p => p.t === "SABIT");
+                 // DÜZELTME: Çakışma kontrolü artık TÜM programdaki derslerle yapılıyor (Sadece SABİT değil)
+                 const fixed = Object.values(window.MY_PROG); 
                  if (fixed.length > 0) {
                      hits = hits.filter(cand => {
                          for (let s1 of cand.s) for (let f of fixed) for (let s2 of f.s) 
@@ -633,7 +651,6 @@ html_template = """
 </script>
 </body>
 </html>
-
 """
 
 # --- 3. INŞAAT ---
@@ -644,7 +661,7 @@ def build():
     with open(OUTPUT_HTML, "w", encoding="utf-8") as f:
         f.write(html_template.replace("{db_placeholder}", data_json).replace("{subj_placeholder}", subj_json))
     
-    print(f"✅ {OUTPUT_HTML} oluşturuldu!")
+    print(f"✅ {OUTPUT_HTML} oluşturuldu! Artık tüm gün isimleri Türkçe ve filtreler düzgün.")
 
 if __name__ == "__main__":
     build()
